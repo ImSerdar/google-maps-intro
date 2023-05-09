@@ -1,46 +1,66 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { DrawingManager, GoogleMap, useLoadScript, Marker, Polygon, LoadScript } from "@react-google-maps/api";
 import usePlacesAutocomplete, { getGeocode, getLatLng } from "use-places-autocomplete";
 import { Combobox, ComboboxInput, ComboboxPopover, ComboboxList, ComboboxOption } from "@reach/combobox";
 import "@reach/combobox/styles.css";
 import { Draggable } from 'react-draggable';
 
-export default function Places() {
-  const { isLoaded } = useLoadScript({
-    googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY,
-    libraries: ["places", "drawing"],
-  });
+// export default function Places() {
+//   const { isLoaded } = useLoadScript({
+//     googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY,
+//     libraries: ["places", "drawing"],
+//   });
 
-  if (!isLoaded) return <div>Loading...</div>;
+//   if (!isLoaded) return <div>Loading...</div>;
 
-  return <Map />;
-}
+//   return <Map />;
+// }
 
-function Map() {
+export default function Map() {
     // Set up the initial map center
     const center = useMemo(() => ({ lat: 49.26016048544659, lng: -123.01855939966318 }), []);
     const [selected, setSelected] = useState(center);
     const [polygonPaths, setPolygonPaths] = useState([]);
+    
+    const polygonRef = useRef(null);
+    const listenersRef = useRef([]);
+    const [path, setPath] = useState([]);
+    const onEdit = useCallback(() => {
+      if (polygonRef.current) {
+        const nextPath = polygonRef.current
+          .getPath()
+          .getArray()
+          .map(latLng => {
+            return { lat: latLng.lat(), lng: latLng.lng() };
+          });
+        setPath(nextPath);
+      }
+    }, [setPath]);
+
+    const onLoad = useCallback(
+      polygon => {
+        polygonRef.current = polygon;
+        const path = polygon.getPath();
+        listenersRef.current.push(
+          path.addListener("set_at", onEdit),
+          path.addListener("insert_at", onEdit),
+          path.addListener("remove_at", onEdit)
+        );
+      },
+      [onEdit]
+    );
 
     
-    // Load polygon paths from local storage on component mount
-    useEffect(() => {
-        const savedPaths = JSON.parse(localStorage.getItem('polygonPaths'));
-        if (savedPaths) {
-        setPolygonPaths(savedPaths);
-        }
-    }, []);
-
-    // Save polygon paths to local storage when they change
-    useEffect(() => {
-        localStorage.setItem('polygonPaths', JSON.stringify(polygonPaths));
-    }, [polygonPaths]);
-
+  // Clean up refs
+  const onUnmount = useCallback(() => {
+    listenersRef.current.forEach(lis => lis.remove());
+    polygonRef.current = null;
+  }, []);
   
-    // Event handlers for DrawingManager
-    const onLoad = drawingManager => {
-      console.log(drawingManager)
-    }
+    // // Event handlers for DrawingManager
+    // const onLoad = drawingManager => {
+    //   console.log(drawingManager)
+    // }
 
   
     const onPolygonComplete = polygon => {
@@ -50,18 +70,31 @@ function Map() {
       setPolygonPaths(paths);
     }
   
+    const { isLoaded } = useLoadScript({
+          googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY,
+          libraries: ["places", "drawing"],
+        });
+      
+        if (!isLoaded) return <div>Loading...</div>;
+
     // Render the GoogleMap component with a Marker and DrawingManager
     return (
       <>
         <div className="places-container">
           <PlacesAutocomplete setSelected={setSelected} />
         </div>
-      
+        {/* <LoadScript
+        id="script-loader"
+        //googleMapsApiKey= process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+        language="en"
+        region="us"
+      > */}
         <GoogleMap
           id="drawing-manager-example"
-          mapContainerClassName="map-container"
+          mapContainerClassName="map-container App-map"
           zoom={15}
           center={selected}
+          version="weekly"
         >
           {selected && <Marker position={selected} />}
           
@@ -81,11 +114,22 @@ function Map() {
   
           {polygonPaths.length > 0 && (
             <Polygon
-              paths={polygonPaths}
-              options={{ strokeColor: "#FF0000", fillColor: "#FF0000" }}
+              // paths={polygonPaths}
+              // options={{ strokeColor: "#FF0000", fillColor: "#FF0000" }}
+              // Make the Polygon editable / draggable
+              editable
+              draggable
+              path={path}
+              // Event used when manipulating and adding points
+              onMouseUp={onEdit}
+              // Event used when dragging the whole Polygon
+              onDragEnd={onEdit}
+              onLoad={onLoad}
+              onUnmount={onUnmount}
             />
           )}
         </GoogleMap>
+           {/* </LoadScript> */}
       </>
     );
   }
